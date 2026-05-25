@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DiffuClinic — Risk-Based Evaluation Framework</title>
+<style>
+  :root {
+    --safety: #dc2626;
+    --safety-bg: #fef2f2;
+    --safety-border: #fecaca;
+    --quality: #2563eb;
+    --quality-bg: #eff6ff;
+    --quality-border: #bfdbfe;
+    --utility: #7c3aed;
+    --utility-bg: #f5f3ff;
+    --utility-border: #ddd6fe;
+    --efficiency: #059669;
+    --efficiency-bg: #ecfdf5;
+    --efficiency-border: #a7f3d0;
+    --text: #1e293b;
+    --text-muted: #64748b;
+    --bg: #f8fafc;
+    --card-bg: #ffffff;
+    --border: #e2e8f0;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 40px 24px; }
+
+  header {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+  header h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 8px;
+  }
+  header .subtitle {
+    color: var(--text-muted);
+    font-size: 1.05rem;
+  }
+
+  .priority-bar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 48px;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .priority-item {
+    flex: 1;
+    text-align: center;
+    padding: 14px 8px;
+    position: relative;
+  }
+  .priority-item:not(:last-child)::after {
+    content: '>';
+    position: absolute;
+    right: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: white;
+    font-weight: 700;
+    font-size: 1.1rem;
+    z-index: 2;
+  }
+  .pi-safety  { background: var(--safety); color: white; }
+  .pi-quality { background: var(--quality); color: white; }
+  .pi-utility { background: var(--utility); color: white; }
+  .pi-efficiency { background: var(--efficiency); color: white; }
+
+  .tier {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 28px;
+    overflow: hidden;
+  }
+  .tier-header {
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .tier-number {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 1.1rem;
+    color: white;
+    flex-shrink: 0;
+  }
+  .tier-title h2 { font-size: 1.2rem; font-weight: 700; }
+  .tier-title .tier-question { font-size: 0.85rem; color: var(--text-muted); }
+  .tier-body { padding: 0 24px 24px; }
+
+  .tn-safety  { background: var(--safety); }
+  .tn-quality { background: var(--quality); }
+  .tn-utility { background: var(--utility); }
+  .tn-efficiency { background: var(--efficiency); }
+
+  .metric-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  .metric-card {
+    border: 1px solid;
+    border-radius: 10px;
+    padding: 16px 18px;
+    font-size: 0.9rem;
+  }
+  .metric-card .mc-name { font-weight: 700; font-size: 1rem; margin-bottom: 4px; }
+  .metric-card .mc-paradigm { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 8px; }
+  .metric-card .mc-detail { font-size: 0.82rem; color: var(--text); line-height: 1.5; }
+  .metric-card .mc-catches { font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--border); }
+
+  .mc-safety  { border-color: var(--safety-border); background: var(--safety-bg); }
+  .mc-quality { border-color: var(--quality-border); background: var(--quality-bg); }
+  .mc-utility { border-color: var(--utility-border); background: var(--utility-bg); }
+  .mc-efficiency { border-color: var(--efficiency-border); background: var(--efficiency-bg); }
+
+  .complement-note {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    padding: 12px 16px;
+    background: var(--bg);
+    border-radius: 8px;
+    margin-top: 8px;
+    border-left: 3px solid var(--text-muted);
+  }
+  .complement-note strong { color: var(--text); }
+
+  .jury-box {
+    border: 1px solid var(--utility-border);
+    background: var(--utility-bg);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+  }
+  .jury-models {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 12px 0;
+  }
+  .jury-model {
+    background: white;
+    border: 1px solid var(--utility-border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+  .jury-model .icc { font-size: 0.75rem; color: var(--text-muted); font-weight: 400; }
+
+  .output-files {
+    margin-top: 32px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+  }
+  .output-files h3 { font-size: 1rem; margin-bottom: 12px; }
+  .output-files code {
+    display: block;
+    font-size: 0.82rem;
+    padding: 3px 0;
+    color: var(--text-muted);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  table th, table td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  table th {
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  table tr:last-child td { border-bottom: none; }
+
+  .citations {
+    margin-top: 40px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+  }
+  .citations h3 { font-size: 1rem; margin-bottom: 12px; }
+  .citations ol {
+    font-size: 0.82rem;
+    padding-left: 20px;
+    color: var(--text-muted);
+    line-height: 1.8;
+  }
+  .citations a { color: var(--quality); text-decoration: none; }
+  .citations a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>DiffuClinic — Risk-Based Evaluation Framework</h1>
+  <p class="subtitle">4 models &middot; 4 dimensions &middot; Safety > Quality > Clinical Utility > Efficiency</p>
+</header>
+
+<!-- Priority Bar -->
+<div class="priority-bar">
+  <div class="priority-item pi-safety">Safety</div>
+  <div class="priority-item pi-quality">Quality</div>
+  <div class="priority-item pi-utility">Clinical Utility</div>
+  <div class="priority-item pi-efficiency">Efficiency</div>
+</div>
+
+<!-- Tier 1: Safety -->
+<div class="tier">
+  <div class="tier-header">
+    <div class="tier-number tn-safety">1</div>
+    <div class="tier-title">
+      <h2>Safety — Factuality vs Source Text</h2>
+      <div class="tier-question">核心问题：总结有没有编造原文没说的东西？</div>
+    </div>
+  </div>
+  <div class="tier-body">
+    <div class="metric-grid">
+      <div class="metric-card mc-safety">
+        <div class="mc-name">QAFactEval</div>
+        <div class="mc-paradigm">QA-based (Question Answering)</div>
+        <div class="mc-detail">
+          从总结中抽取关键实体 &rarr; 生成问题 &rarr; 回原文找答案 &rarr; 比对一致性
+        </div>
+        <div class="mc-catches">擅长抓：实体替换、数值错误、药物剂量偏差</div>
+      </div>
+      <div class="metric-card mc-safety">
+        <div class="mc-name">SummaC</div>
+        <div class="mc-paradigm">NLI-based (Natural Language Inference)</div>
+        <div class="mc-detail">
+          将总结逐句切分 &rarr; 用 RoBERTa-MNLI 判断每句是否被原文蕴含
+        </div>
+        <div class="mc-catches">擅长抓：无依据断言、逻辑矛盾、与原文不符的推理</div>
+      </div>
+      <div class="metric-card mc-safety">
+        <div class="mc-name">MedNER F1</div>
+        <div class="mc-paradigm">NER-based (Named Entity Recognition)</div>
+        <div class="mc-detail">
+          分别从原文和总结中提取医疗实体 &rarr; 计算 Precision / Recall / F1
+        </div>
+        <div class="mc-catches">擅长抓：药名遗漏/篡改、剂量/检查项/诊断实体丢失</div>
+      </div>
+    </div>
+    <div class="complement-note">
+      <strong>互补机制：</strong>QA 检测实体级替换，NLI 检测句子级矛盾，NER 检测领域实体保留。
+      QAFactEval 原论文证明 QA+NLI 结合优于任一单独（+14% on SummaC benchmark）。
+      WeCheck (ACL 2023) 验证联合弱标注 &gt; 单一信号。
+    </div>
+  </div>
+</div>
+
+<!-- Tier 2: Quality -->
+<div class="tier">
+  <div class="tier-header">
+    <div class="tier-number tn-quality">2</div>
+    <div class="tier-title">
+      <h2>Quality — Relevance vs Reference Summary</h2>
+      <div class="tier-question">核心问题：生成的总结和参考总结有多像？</div>
+    </div>
+  </div>
+  <div class="tier-body">
+    <div class="metric-grid">
+      <div class="metric-card mc-quality">
+        <div class="mc-name">ROUGE-1/2/L</div>
+        <div class="mc-paradigm">N-gram Overlap (Lexical)</div>
+        <div class="mc-detail">unigram, bigram, and longest common subsequence F1 against reference</div>
+      </div>
+      <div class="metric-card mc-quality">
+        <div class="mc-name">BLEU-1 .. BLEU-4</div>
+        <div class="mc-paradigm">Precision-based N-gram Match</div>
+        <div class="mc-detail">1-gram through 4-gram precision with brevity penalty and smoothing</div>
+      </div>
+      <div class="metric-card mc-quality">
+        <div class="mc-name">METEOR</div>
+        <div class="mc-paradigm">Word Alignment (Lexical + Stemming)</div>
+        <div class="mc-detail">Unigram precision + recall with stemming and synonym matching</div>
+      </div>
+      <div class="metric-card mc-quality">
+        <div class="mc-name">BERTScore-F1</div>
+        <div class="mc-paradigm">Embedding Similarity (Semantic)</div>
+        <div class="mc-detail">Token-level cosine similarity using roberta-large, rescaled with baseline</div>
+      </div>
+    </div>
+    <div class="complement-note">
+      <strong>互补机制：</strong>从纯词汇重叠 (ROUGE/BLEU) 到词对齐 (METEOR) 到语义相似 (BERTScore)，
+      避免单一粒度对语义等价表达的不公平惩罚。
+    </div>
+  </div>
+</div>
+
+<!-- Tier 3: Clinical Utility -->
+<div class="tier">
+  <div class="tier-header">
+    <div class="tier-number tn-utility">3</div>
+    <div class="tier-title">
+      <h2>Clinical Utility — LLM-as-Judge Jury</h2>
+      <div class="tier-question">核心问题：这个总结临床上到底能不能用？（自动指标测不了的维度）</div>
+    </div>
+  </div>
+  <div class="tier-body">
+    <div class="jury-box">
+      <strong>多模型陪审团 (Multi-Model Jury)</strong>
+      <div class="jury-models">
+        <div class="jury-model">
+          GPT-4o
+          <div class="icc">ICC 0.730</div>
+        </div>
+        <div class="jury-model">
+          DeepSeek-R1
+          <div class="icc">ICC 0.762</div>
+        </div>
+        <div class="jury-model">
+          Claude 3.5 Sonnet
+          <div class="icc">jury participant</div>
+        </div>
+      </div>
+      <span style="font-size:0.82rem;color:var(--text-muted)">→ 多数投票 / 取均值作为最终评分</span>
+    </div>
+
+    <table>
+      <tr><th>评分维度 (PDSQI-9)</th><th>说明</th></tr>
+      <tr><td>Completeness</td><td>是否覆盖了原文中所有临床关键信息</td></tr>
+      <tr><td>Clinical Correctness</td><td>医学事实是否准确，有无临床意义上的错误</td></tr>
+      <tr><td>Readability</td><td>语言是否流畅、清晰、结构合理</td></tr>
+      <tr><td>Overall Utility</td><td>整体是否可直接用于临床决策支持</td></tr>
+    </table>
+
+    <div class="complement-note" style="margin-top:14px;">
+      <strong>验证支撑：</strong>
+      PoLL 多模型陪审团 &kappa;=0.906 (Bioengineering 2026) &middot;
+      MedFactEval LLM Jury &kappa;=0.81 vs 7-physician panel (PSB 2026) &middot;
+      GPT-o3-mini ICC=0.818 (Croxford et al., <em>npj Digital Medicine</em> 2025) &middot;
+      MedJUDGE scoping review of 49 healthcare LLM-as-judge studies (2026)
+    </div>
+  </div>
+</div>
+
+<!-- Tier 4: Efficiency -->
+<div class="tier">
+  <div class="tier-header">
+    <div class="tier-number tn-efficiency">4</div>
+    <div class="tier-title">
+      <h2>Efficiency — Deployment Cost</h2>
+      <div class="tier-question">核心问题：能不能实际部署？</div>
+    </div>
+  </div>
+  <div class="tier-body">
+    <div class="metric-grid">
+      <div class="metric-card mc-efficiency">
+        <div class="mc-name">Avg Latency</div>
+        <div class="mc-paradigm">秒 / 样本</div>
+        <div class="mc-detail">每样本端到端生成耗时。LLaDA: 3.00–3.13s，LLaMA: 3.30–3.38s</div>
+      </div>
+      <div class="metric-card mc-efficiency">
+        <div class="mc-name">Total Wall Time</div>
+        <div class="mc-paradigm">全量推理时间</div>
+        <div class="mc-detail">3396样本总耗时。LLaDA: ~2h50min–2h57min，LLaMA: 3h07min–3h12min</div>
+      </div>
+      <div class="metric-card mc-efficiency">
+        <div class="mc-name">Generation Metric</div>
+        <div class="mc-paradigm">Tokens / Diffusion Steps</div>
+        <div class="mc-detail">LLaMA: 126.7–128.0 tokens/sample。LLaDA: 512 diffusion steps (fixed)</div>
+      </div>
+    </div>
+    <div class="complement-note">
+      <strong>数据来源：</strong>LLaMA per-sample metrics from <code>_metrics.csv</code>；
+      LLaDA aggregate from run logs (per-sample timing not recorded)。
+    </div>
+  </div>
+</div>
+
+<!-- Decision Logic -->
+<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin-top:28px;">
+  <h3 style="font-size:1rem;margin-bottom:8px;">决策逻辑 (Decision Rule)</h3>
+  <p style="font-size:0.9rem;color:var(--text-muted);">
+    当模型在各维度 trade-off 时，按优先级决策：
+  </p>
+  <pre style="background:var(--bg);padding:14px 18px;border-radius:8px;font-size:0.82rem;margin-top:10px;line-height:1.7;">
+Model A: Safety ✓✓✓  Quality ✓✓  Clinical ✓  Efficiency ✓
+Model B: Safety ✓    Quality ✓✓✓  Clinical ✓✓✓  Efficiency ✓✓✓
+
+→ 选 Model A。Safety > Everything.</pre>
+</div>
+
+<!-- Output Files -->
+<div class="output-files">
+  <h3>产出文件 (results/)</h3>
+  <code>safety_scores_{model}.csv &mdash; QAFactEval + SummaC + MedNER F1 逐样本</code>
+  <code>quality_scores_{model}.csv &mdash; ROUGE / BLEU / METEOR / BERTScore 逐样本</code>
+  <code>clinical_utility_{model}.csv &mdash; LLM Jury 评分 逐样本</code>
+  <code>evaluation_summary.csv &mdash; 4 models &times; 4 tiers 汇总对比</code>
+</div>
+
+<!-- Citations -->
+<div class="citations">
+  <h3>验证引用</h3>
+  <ol>
+    <li>Fabbri et al. "QAFactEval: Improved QA-Based Factual Consistency Evaluation for Summarization." <em>NAACL 2022</em>.
+      <a href="https://aclanthology.org/2022.naacl-main.187/">https://aclanthology.org/2022.naacl-main.187/</a></li>
+    <li>Laban et al. "SummaC: Re-visiting NLI-based Models for Consistency Detection in Summarization." <em>NAACL 2022</em>.
+      <a href="https://arxiv.org/abs/2111.04225">https://arxiv.org/abs/2111.04225</a></li>
+    <li>Wu et al. "WeCheck: Strong Factual Consistency Checker via Weakly Supervised Learning." <em>ACL 2023</em>.
+      <a href="https://arxiv.org/abs/2212.10057">https://arxiv.org/abs/2212.10057</a></li>
+    <li>Croxford et al. "Evaluating clinical AI summaries with large language models as judges." <em>npj Digital Medicine</em>, 2025.
+      <a href="https://www.nature.com/articles/s41746-025-02005-2">https://www.nature.com/articles/s41746-025-02005-2</a></li>
+    <li>MedJUDGE Framework: "A Scoping Review of LLM-as-a-Judge in Healthcare." <em>arXiv</em>, 2026.
+      <a href="https://arxiv.org/abs/2604.25933">https://arxiv.org/abs/2604.25933</a></li>
+    <li>PoLL: "Artificial Authority: The Promise and Perils of LLM Judges in Healthcare." <em>Bioengineering</em>, 2026.
+      <a href="https://doi.org/10.3390/bioengineering13010108">https://doi.org/10.3390/bioengineering13010108</a></li>
+    <li>MedFactEval: "A Framework and Workflow for Generating and Evaluating Factual Clinical Summaries." <em>PSB 2026</em>.
+      <a href="https://pubmed.ncbi.nlm.nih.gov/41758155/">PubMed: 41758155</a></li>
+  </ol>
+</div>
+
+</div>
+</body>
+</html>
