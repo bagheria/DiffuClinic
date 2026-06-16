@@ -23,7 +23,7 @@ from transformers import AutoTokenizer, AutoModel
 from dataclasses import asdict
 import gc
 
-from utils import load_data_from_zip, find_latest_checkpoint
+from shared_utils import load_data_from_zip, find_latest_checkpoint
 
 PROMPT_TEMPLATE = """Please generate a concise clinical summary based on the following medical dialogue:
 
@@ -183,6 +183,7 @@ def main():
     parser.add_argument("--no_dllm_cache", action="store_true", help="Disable dLLM-Cache acceleration")
     parser.add_argument("--checkpoint_every", type=int, default=100)
     parser.add_argument("--no_resume", action="store_true", help="Start from scratch, ignore existing checkpoints")
+    parser.add_argument("--sample_indices", default=None, help="Path to file with pre-sampled indices (one per line)")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -236,17 +237,25 @@ def main():
 
     print("Model loaded.")
 
+    # ---- Setup indices to run ----
+    if args.sample_indices:
+        with open(args.sample_indices) as f:
+            run_indices = [int(line.strip()) for line in f if line.strip()]
+        print(f"Loaded {len(run_indices)} sample indices from {args.sample_indices}")
+    else:
+        run_indices = list(range(len(df)))
+
     # ---- Setup resume ----
-    start_idx = 0
+    start_pos = 0
     results = []
     if not args.no_resume:
-        start_idx, results = find_latest_checkpoint(args.output_dir)
-    total = len(df)
+        start_pos, results = find_latest_checkpoint(args.output_dir, args.output_name)
 
     # ---- Inference loop ----
     metrics = []
-    print(f"\nProcessing {total} samples (starting from {start_idx})...")
-    for idx in tqdm(range(start_idx, total), desc="Generating", initial=start_idx, total=total):
+    print(f"\nProcessing {len(run_indices)} samples (starting from position {start_pos})...")
+    for pos in tqdm(range(start_pos, len(run_indices)), desc="Generating", initial=start_pos, total=len(run_indices)):
+        idx = run_indices[pos]
         row = df.iloc[idx]
         try:
             pred, elapsed, diffusion_steps = summarize(
@@ -270,9 +279,9 @@ def main():
             'diffusion_steps': diffusion_steps,
         })
 
-        if (idx + 1) % args.checkpoint_every == 0:
+        if (pos + 1) % args.checkpoint_every == 0:
             pd.DataFrame(results).to_csv(
-                f'{args.output_dir}/checkpoint_{idx + 1}.csv', index=False
+                f'{args.output_dir}/checkpoint_{args.output_name}_{pos + 1}.csv', index=False
             )
             torch.cuda.empty_cache()
             gc.collect()
