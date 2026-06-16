@@ -1,0 +1,223 @@
+Running checks on 592 pairs …
+(Medication check loads scispaCy — first pair will be slow ~40s)
+  [  1/592] processing …
+/home/laptop/Documents/College/Thesis/venv/lib/python3.14/site-packages/spacy/util.py:971: UserWarning: [W095] Model 'en_ner_bc5cdr_md' (0.5.4) was trained with spaCy v3.7.4 and may not be 100% compatible with the current version (3.8.13). If you see errors or degraded performance, download a newer compatible model or retrain your custom model with the current spaCy version. For more details and available updates, run: python -m spacy validate
+  warnings.warn(warn_msg)
+/home/laptop/Documents/College/Thesis/venv/lib/python3.14/site-packages/spacy/language.py:2235: FutureWarning: Possible set union at position 6328
+  deserializers["tokenizer"] = lambda p: self.tokenizer.from_disk(  # type: ignore[union-attr]
+/home/laptop/Documents/College/Thesis/venv/lib/python3.14/site-packages/sklearn/base.py:463: InconsistentVersionWarning: Trying to unpickle estimator TfidfTransformer from version 1.1.2 when using version 1.8.0. This might lead to breaking code or invalid results. Use at your own risk. For more info please refer to:
+https://scikit-learn.org/stable/model_persistence.html#security-maintainability-limitations
+  warnings.warn(
+/home/laptop/Documents/College/Thesis/venv/lib/python3.14/site-packages/sklearn/base.py:463: InconsistentVersionWarning: Trying to unpickle estimator TfidfVectorizer from version 1.1.2 when using version 1.8.0. This might lead to breaking code or invalid results. Use at your own risk. For more info please refer to:
+https://scikit-learn.org/stable/model_persistence.html#security-maintainability-limitations
+  warnings.warn(
+  [ 50/592] processing …
+  [100/592] processing …
+  [150/592] processing …
+  [200/592] processing …
+  [250/592] processing …
+  [300/592] processing …
+  [350/592] processing …
+  [400/592] processing …
+  [450/592] processing …
+  [500/592] processing …
+  [550/592] processing …
+
+================================================================================
+MULTICLINSUM GS TRAIN — FULL ENTITY CONSISTENCY AUDIT
+Dataset : /home/laptop/Documents/College/Thesis/Data/multiclinsum_gs_train_en
+================================================================================
+
+STATISTICS
+────────────────────────────────────────────────────────────────────────────────
+Total pairs checked              :   592
+Gender contradictions            :     3  ( 0.51 %)
+Age mismatches (> 2 yr)          :     5  ( 0.84 %)
+Numeric value changes            :    10  ( 1.69 %)
+Medication hallucinations        :    43  ( 7.26 %)
+────────────────────────────────────────────────────────────────────────────────
+Pairs with ANY inconsistency     :    58  ( 9.80 %)
+
+
+================================================================================
+GENDER CONTRADICTIONS — 3 EXAMPLES
+================================================================================
+
+[1]  multiclinsum_gs_en_456
+     Fulltext gender : female   |   Summary gender : male
+
+     SOURCE : "Patient information A 27 years old female patient with no
+           relevant medical history visited the Department of Periodontics
+           and Community Dentistry in the month of August 2023, presented
+           with thin gingival phenotype and root prominence at lower
+           anterior teeth."
+     SUMMARY: "Patient concerns: A 27-year-old male patient arrived with a
+           severe intrabony defect and a poor periodontal phenotype."
+
+[2]  multiclinsum_gs_en_48
+     Fulltext gender : female   |   Summary gender : male
+
+     SOURCE : "29-year-old female patient with a history of fever, vomiting
+           and abdominal pain in the previous week, diagnosed with
+           influenza B with normal abdominal-pelvic CT."
+     SUMMARY: "29-year-old male presented to the emergency department with
+           abdominal pain, vomiting, and seizures."
+
+[3]  multiclinsum_gs_en_481
+     Fulltext gender : female   |   Summary gender : female | male
+
+     SOURCE : "A 55-year-old female patient with a medical history of
+           rheumatoid arthritis and uterine myomatosis was diagnosed with
+           a thyroid gland calcification."
+     SUMMARY: "he present study describes a 55 year-old female diagnosed with
+           surgically resected papillary thyroid carcinoma."
+
+================================================================================
+AGE MISMATCHES (> 2 yr tolerance) — 5 EXAMPLES
+================================================================================
+
+[1]  multiclinsum_gs_en_544
+     Source ages : [69]   |   Summary ages : [81]
+     Mismatched summary age : 81
+
+     SOURCE : "An 69-year-old man with a history of kidney failure was
+           admitted to our hospital."
+     SUMMARY: "We report the case of an 81-year-old man with heterochronous
+           quadruple EMPD."
+
+[2]  multiclinsum_gs_en_545
+     Source ages : [21]   |   Summary ages : [42]
+     Mismatched summary age : 42
+
+     SOURCE : "The patient presented with no notable comorbidities, and had a
+           history of bilateral breast augmentation in the submuscular
+           plane with cosmetic indication at age 21 in the year 2003."
+     SUMMARY: "We describe the case of a 42 year-old woman with a history of
+           bilateral breast augmentation for cosmetic purposes 21 years
+           prior, who developed recurring seroma of the left side."
+
+[3]  multiclinsum_gs_en_569
+     Source ages : [38]   |   Summary ages : [35]
+     Mismatched summary age : 35
+
+     SOURCE : "A 38-year-old male presented to the hospital with chest
+           tightness and shortness of breath."
+     SUMMARY: "A 35-year-old male was admitted to the hospital three years ago
+           because of sudden chest tightness and shortness of breath."
+
+[4]  multiclinsum_gs_en_80
+     Source ages : [32]   |   Summary ages : [36]
+     Mismatched summary age : 36
+
+     SOURCE : "A 32-year-old woman, gravida 1, para 0, complained of
+           continuous vaginal fluid flow for more than 2 h and bloody
+           amniotic fluid for 20 min in the 36th week of pregnancy."
+     SUMMARY: "A 36-year-old woman was admitted to the hospital six days after
+           the cesarean section with abdominal pain and dysuria."
+
+[5]  multiclinsum_gs_en_93
+     Source ages : [32]   |   Summary ages : [20]
+     Mismatched summary age : 20
+
+     SOURCE : "A 32-year-old male presented with complaints of right wrist
+           pain and swelling along with open fracture of the right both
+           bone leg, following a road traffic accident."
+     SUMMARY: "We present a case of 20-year-old male with an isolated scaphoid
+           dislocation and scapholunate ligament injury of the wrist,
+           diagnosed and repaired in an acute setting with k wires and
+           suture anchor augmentation."
+
+================================================================================
+NUMERIC VALUE CHANGES — 5 EXAMPLES
+================================================================================
+
+[1]  multiclinsum_gs_en_22
+     Unit : mg   |   Summary value : 5   |   Source value(s) : 1, 9.96
+
+     SOURCE : "The patient was treated with 1 mg/kg of corticosteroid after
+           steroid pulse therapy."
+     SUMMARY: "The corticosteroid dose was gradually decreased by 5 mg."
+
+[2]  multiclinsum_gs_en_275
+     Unit : ml   |   Summary value : 30   |   Source value(s) : 32
+
+     SOURCE : "Serum creatinine over the next few days increased to 1.8 mg/dL
+           (Schwartz estimated glomerular filtration rate 32 mL/1.73
+           m2/min)."
+     SUMMARY: "Renal function test showed an estimated glomerular filtration
+           rate of 30 mL/min/1.73 m2."
+
+[3]  multiclinsum_gs_en_29
+     Unit : mmol   |   Summary value : 14.3   |   Source value(s) : 14, 20.7
+
+     SOURCE : "Blood tests revealed a blood glucose level of 124 mg/dL, pH of
+           7.3, HCO3–concentration of 14 mmol/L, base excess of -10 mEq/L,
+           anion gap of 20 mEq/L, and b-hydroxybutyrate concentration of
+           5150 μmol/L (Table 1)."
+     SUMMARY: "On admission, blood test results revealed a blood glucose level
+           of 124 mg/dL, hemoglobin A1C level of 5.9%, pH of 7.329, HCO₃⁻
+           concentration of 14.3 mmol/L, and a β-hydroxybutyrate
+           concentration of 5150 μmol/L, leading to a diagnosis of
+           euglycemic ketoacidosis."
+
+[4]  multiclinsum_gs_en_375
+     Unit : g   |   Summary value : 6.7   |   Source value(s) : 12.8
+
+     SOURCE : "Anemia condition has shown improvement, as shown by the patient
+           being able to perform blood donation, with a hemoglobin value
+           at that time of 12.8 g/dL."
+     SUMMARY: "(sentence not isolated)"
+
+[5]  multiclinsum_gs_en_408
+     Unit : g   |   Summary value : 1   |   Source value(s) : 8.84
+
+     SOURCE : "Initial investigations revealed a hemoglobin level of 8.84
+           g/dl."
+     SUMMARY: "(sentence not isolated)"
+
+================================================================================
+MEDICATION HALLUCINATIONS — 5 EXAMPLES
+================================================================================
+
+[1]  multiclinsum_gs_en_100
+     Absent drug(s)  : "ceftriaxone"
+     Source drug(s)  : (none detected)
+
+     SUMMARY: "A cerebrospinal fluid cytology and biochemistry were consistent
+           with bacterial meningitis, and ceftriaxone was initiated."
+     SOURCE : (drug absent from source text)
+
+[2]  multiclinsum_gs_en_105
+     Absent drug(s)  : "hypolipidemic agents"
+     Source drug(s)  : "111.72 mg/g cr", "amino acids", "arginine", "enalapril", "±"
+
+     SUMMARY: "(sentence not isolated)"
+     SOURCE : (drug absent from source text)
+
+[3]  multiclinsum_gs_en_117
+     Absent drug(s)  : "steroids"
+     Source drug(s)  : "acetaminophen", "amikacin", "ampicillin / sulbactam", "antacids", "calcium", "carbonates", …
+
+     SUMMARY: "(sentence not isolated)"
+     SOURCE : (drug absent from source text)
+
+[4]  multiclinsum_gs_en_122
+     Absent drug(s)  : "high-dose steroid"
+     Source drug(s)  : "adrenergic beta-antagonists", "esmolol", "hydrocortisone", "iodine", "liothyronine", "methimazole", …
+
+     SUMMARY: "Although a higher infection risk is an important consideration,
+           a high-dose steroid was used to control the intractable
+           tachycardia that did not respond to beta-blocker
+           administration."
+     SOURCE : (drug absent from source text)
+
+[5]  multiclinsum_gs_en_126
+     Absent drug(s)  : "antidepressive agents"
+     Source drug(s)  : "clomipramine", "modafinil", "pitolisant", "sodium oxybate", "venlafaxine"
+
+     SUMMARY: "(sentence not isolated)"
+     SOURCE : (drug absent from source text)
+
+================================================================================
+END OF REPORT
+================================================================================

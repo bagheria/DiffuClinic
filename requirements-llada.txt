@@ -1,0 +1,14 @@
+torch
+transformers==4.38.2
+peft==0.10.0
+numpy<2
+pandas
+tqdm
+pyyaml
+
+spacy<3.8
+scikit-learn
+nmslib-metabrainz
+conllu
+pysbd
+click

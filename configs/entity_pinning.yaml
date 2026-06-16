@@ -1,0 +1,25 @@
+
+entity_selector:
+  max_medications: 4
+  max_diseases: 8
+  budget_fraction: 0.3
+  recency_threshold: 0.75
+  recency_multiplier: 2.0
+  idf_smoothing: 1.0
+  max_entity_tokens: 10
+  idf_weights_path: utilities/idf_weights.json
+
+entity_pinned_decoding:
+  gen_length: 128
+  steps: 64
+  mask_id: 126336
+  lambda_max: 2.0
+  annealing_power: 1.0
+  temperature: 0.0
+  remasking: low_confidence
+  block_length: 16
+
+ablation_grid:
+  lambda_max: [1.0, 2.0, 3.0]
+  annealing_power: [0.5, 1.0, 2.0]
+  max_diseases: [4, 8, 12]
