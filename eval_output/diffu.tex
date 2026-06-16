@@ -1,0 +1,755 @@
+\documentclass[11pt]{article}
+
+% Change "review" to "final" to generate the final (sometimes called camera-ready) version.
+% Change to "preprint" to generate a non-anonymous version with page numbers.
+\usepackage[preprint]{acl}
+
+% Standard package includes
+\usepackage{times}
+\usepackage{latexsym}
+
+% For proper rendering and hyphenation of words containing Latin characters (including in bib files)
+\usepackage[T1]{fontenc}
+% For Vietnamese characters
+% \usepackage[T5]{fontenc}
+% See https://www.latex-project.org/help/documentation/encguide.pdf for other character sets
+
+% This assumes your files are encoded as UTF8
+\usepackage[utf8]{inputenc}
+
+% This is not strictly necessary, and may be commented out,
+% but it will improve the layout of the manuscript,
+% and will typically save some space.
+\usepackage{microtype}
+
+% This is also not strictly necessary, and may be commented out.
+% However, it will improve the aesthetics of text in
+% the typewriter font.
+\usepackage{inconsolata}
+
+%Including images in your LaTeX document requires adding
+%additional package(s)
+\usepackage{graphicx}
+
+% If the title and author information does not fit in the area allocated, uncomment the following
+%
+%\setlength\titlebox{<dim>}
+%
+% and set <dim> to something 5cm or larger.
+
+\title{Autoregressive vs. Diffusion Language Models for Clinical Text Summarisation }
+
+\author{Carlos Conde \\
+  Utrecht University \\
+  Utrecht, Netherlands \\
+  \texttt{c.a.condegiron@students.uu.nl} \\\And
+  Zexuan Li \\
+  Utrecht University \\
+  Utrecht, Netherlands \\
+  \texttt{z.li28@students.uu.nl} \\}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+Autoregressive language models have become the standard approach for clinical text summarisation, but their sequential generation makes them prone to hallucinations and dropped clinical facts. Diffusion language models generate text through iterative sequence-level denoising, which may reduce this kind of error propagation, but they have not been evaluated on clinical text. This paper fine-tunes and compares Llama 3.1 8B as an autoregressive baseline and LLaDA 8B and LAD as masked diffusion models on MultiClinSum, a public clinical summarization dataset. Models are evaluated under both zero-shot and fine-tuned conditions. For the diffusion models, we additionally test entity-pinned decoding, where a clinical entity extractor identifies terms such as dosages, diagnoses, and lab values in the source note, and locks them during generation to prevent factual drift. Evaluation uses ROUGE, BERTScore, and METEOR for surface and semantic quality, QAFactEval and MedNER-F1 for factual consistency, and we report whether entity-pinned decoding improves source faithfulness 
+compared to standard diffusion inference.
+\end{abstract}
+
+\begin{abstract}
+Autoregressive language models dominate clinical text summarization, yet their sequential generation mechanism remains highly vulnerable to compounding errors, leading to factual hallucinations and omitted critical data. While diffusion language models theoretically mitigate this via iterative, sequence-level denoising, their efficacy in the complex medical domain remains unexplored. This paper conducts the first systematic comparison between an AR baseline (Llama 3.1 8B) and masked diffusion models (LLaDA 8B, LAD) on the MultiClinSum dataset under both zero-shot and fine-tuned settings. To constrain diffusion generation, we introduce Entity-Pinned Decoding, a mechanism that extracts and locks critical clinical terms (e.g., dosages, diagnoses) during the denoising process to strictly prevent factual drift. Furthermore, to rigorously benchmark these approaches against the blind spots of traditional evaluation, we formulate a novel four-tier, risk-based evaluation framework. This methodology sequentially assesses algorithmic factuality (SummaC, QAFactEval, MedNER-F1), semantic quality, and clinical acceptability via a heterogeneous LLM jury across PDQI-9 dimensions, ensuring statistical rigor through a powered pilot subset ($n=175$). Our comprehensive analysis reveals that [...], highlighting its potential as a safer alternative for clinical Natural Language Generation (NLG).
+\end{abstract}
+
+\section{Introduction}
+
+Clinical text summarization, which aims to condense lengthy electronic health records (EHRs), progress notes, and clinical dialogues into concise, actionable insights, is pivotal for reducing clinical burnout and improving healthcare delivery [Cite: classic papers on clinical text summarization or clinical LLM applications]. Unlike general-domain summarization, the medical domain imposes an uncompromising standard for factual consistency and clinical completeness. A single hallucinated dosage or an omitted symptom can alter clinical decision-making, presenting severe risks to patient outcomes. Consequently, evaluating and mitigating semantic deviations in clinical text generation remains a paramount challenge in medical Natural Language Processing [Cite: recent papers on factual consistency or safety in medical text generation].
+
+Currently, Large Language Models (LLMs) dominated by the causal, left-to-right autoregressive (AR) paradigm serve as the backbone for most clinical summarization systems [Cite: Papers establishing autoregressive LLMs as the dominant paradigm in clinical summarization]. Despite their remarkable linguistic fluency, AR models suffer from inherent architectural limitations, most notably exposure bias [Cite: exposure bias, e.g., Ranzato et al.] and compounding errors [Cite: Classic papers on compounding errors in text generation, e.g., Bengio et al.]. Because AR generation relies on predicting the next token conditioned on previously generated (and potentially erroneous) tokens, these models are notoriously susceptible to hallucinations (generating fabricated clinical info) and omissions (dropping critical clinical facts) .
+
+Recently, Diffusion Language Models (DLMs) have emerged as a compelling alternative paradigm [Cite: introducing diffusion language models, e.g., Diffusion-LM or Plaid]. By framing text generation as an iterative denoising process over the entire sequence simultaneously, DLMs allow for global context awareness and non-monotonic error correction. This structural difference theoretically empowers diffusion models to mitigate the token-by-token error propagation typical of AR models, offering a tighter bound on factual grounding. However, the potential of DLMs in complex, terminology-dense, and high-stakes professional fields like medicine remains entirely unmapped. Existing evaluations of DLMs are largely confined to short text generation or general domains, leaving a significant research gap: How do large-scale diffusion models truly stack up against state-of-the-art autoregressive models in clinical scenarios under both zero-shot and fine-tuned conditions?
+
+To bridge this gap, this paper presents the first systematic, multi-dimensional empirical study comparing 8B-parameter autoregressive and diffusion language models on clinical text summarization. We benchmark the premier AR model, Llama 3.1 (8B), against the leading open-source diffusion language model, LlaDA (8B). LAD \citep{kuiper2025lad}, a LoRA-adapted diffusion model developed within our research group, is included as a third condition. We additionally observe that reference summaries in MultiClinSum contain entity-level inconsistencies with their source notes, including direct gender contradictions, which motivates a complementary investigation: whether entity-pinned decoding, where clinical entities extracted from the source note are locked during diffusion generation, improves source faithfulness over standard inference.
+
+We conduct extensive experiments on MultiClinSum, a large-scale public clinical summarization dataset, utilizing a comprehensive evaluation framework that measures: 
+
+\begin{enumerate}
+    \item \textit{Linguistic Quality:} Evaluated via token-matching and semantic metrics, including ROUGE, BLEU, METEOR, and BERTScore.
+    \item \textit{Factual Consistency and Clinical Accuracy:} Measured via advanced Question-Answering and Natural Language Inference frameworks, specifically QAFactEval [Cite: Fabbri et al., 2022]—which has been demonstrated by Tang et al. [Cite: The specific paper by Tang et al. evaluating QAFactEval's high correlation in clinical settings] to exhibit the highest human correlation (r = 0.55) in clinical settings—and SummaC [Cite: Laban et al., 2022] (r in [0.30, 0.36]). To complement these automated metrics with nuanced semantic judgment, we implement an LLM-as-a-Judge framework [Cite: Foundational LLM-as-a-judge papers, e.g., Zheng et al., 2023 / MT-Bench] to evaluate open-ended clinical accuracy and catch complex semantic hallucinations. Additionally, we implement a domain-specific MedNER-F1 metric using clinical named entity recognition tools to quantify the exact retention of critical medical entities such as drugs, dosages, and diseases.
+    \item \textit{Computational Efficiency:} Evaluated regarding inference latency (seconds per sample) and throughput (tokens per second).
+\end{enumerate}
+Our empirical evaluations yield several critical and counter-intuitive insights. First, we observe that in zero-shot settings, the diffusion baseline (LlaDA) inherently achieves higher factual consistency and lower hallucination rates than the stronger AR baseline (Llama 3.1), validating the hypothesis that iterative global refinement naturally constrains semantic drift. Second, while AR models maintain an advantage in raw lexical fluency and computational throughput, our proposed LAD substantially bridges the performance gap in text quality while extending its lead in clinical factuality after fine-tuning. [results] Specifically, LAD achieves a [X.XX]\% improvement in QAFactEval and retains [X.XX]\% more critical medical entities (MedNER-F1) compared to fine-tuned AR models. These findings demonstrate that sacrificing a degree of inference throughput is a highly justifiable trade-off for mitigating fatal hallucinations in safety-critical clinical deployments.
+
+In summary, our primary contributions are four-fold:
+
+\begin{itemize}
+    \item \textbf{First Systematic Benchmark:} We conduct the first rigorous, large-scale (8B parameter) comparison between autoregressive and diffusion language models within the safety-critical domain of medical text summarization.
+    \item \textbf{Entity-Pinned Decoding:} We propose an inference-time strategy for diffusion models that extracts clinical entities from source notes using a scispaCy-based pipeline and locks them during the remasking process, testing whether this reduces factual drift compared to standard diffusion inference.
+    \item \textbf{Granular Multi-dimensional Evaluation:} We provide a comprehensive evaluation across linguistic, computational, and granular clinical dimensions, revealing the precise trade-offs between AR fluency and Diffusion factuality to guide future clinical NLP deployments.
+    \item \textbf{Label Noise Detection:} We identify entity-level label noise in MultiClinSum reference summaries, including gender contradictions, age mismatches, and numeric value
+    changes, affecting 9.80\% of GS training pairs, and show this motivates source-grounded rather than reference-grounded faithfulness evaluation.
+\end{itemize}
+
+The remainder of this paper is organized as follows. Section 2 reviews related work on clinical summarization, evaluation metrics, and diffusion language models. Section 3 describes our methodology, including the dataset, model architectures, and evaluation framework. Section 4 presents experimental results and analysis. Section 5 concludes with limitations, ethical considerations, and future directions. 
+
+\section{Related Work}
+
+\subsection{Large Language Models for Clinical Text Summarization}
+The evolution of clinical text summarization has transitioned from early extractive methods and smaller sequence-to-sequence neural networks [Cite: Classic papers on early neural clinical summarization, e.g., using RNNs/BART] to the modern era dominated by causal Large Language Models[Cite: Recent papers applying LLMs to EHRs or clinical notes]. Autoregressive (AR) architectures, notably the Llama and Mistral series, have become the standard backbone for compressing dense electronic health records (EHRs) and clinical dialogues due to their exceptional instruction-following capabilities and linguistic fluency [Cite: Official Llama 3/3.1 technical reports].
+
+Despite their success in generating surface-level fluent text, a growing body of literature warns against their application in safety-critical domains due to factual inconsistencies [Cite: Overviews or surveys on LLM hallucinations]. Because AR models generate tokens sequentially from left to right, they inherently suffer from exposure bias [Cite: Ranzato et al.] and compounding errors [Cite: Bengio et al.]. In clinical settings, a single erroneous token generated early in the sequence can cascade into severe clinical deviations, leading to hallucinations (fabricating non-existent conditions or dosages) or omissions (missing critical patient symptoms) [Cite: Papers focusing on clinical hallucinations and patient safety]. While post-processing alignment or decoding interventions have been proposed [Cite: Mitigation methods for AR models], the foundational vulnerability rooted in token-by-token causal decoding remains unresolved, motivating the exploration of alternative generative paradigms.
+
+\subsection{Scaling Laws and Applications of Diffusion Language Models}
+
+\subsection{Constrained and Entity-Grounded Generation}
+
+Constrained decoding enforces hard constraints on model outputs at
+inference time without modifying model parameters. \citet{hokamp2017lexically}
+introduce Grid Beam Search, which augments standard beam search with a
+constraint coverage dimension to guarantee the inclusion of specified
+phrases in the output. Subsequent work by \citet{post2018fast} reduces
+the computational overhead to constant time in the number of constraints
+via dynamic beam allocation, making lexically constrained decoding
+practical for large-scale use. These methods assume causal, left-to-right
+generation and operate by restructuring the token-level search over the
+autoregressive next-token distribution; to our knowledge, no prior work
+has adapted constraint enforcement to the remasking step of masked
+diffusion models.
+
+Biomedical entity identification commonly relies on scispaCy
+\citep{neumann2019scispacy}, a toolkit providing NER models trained on
+domain corpora including BC5CDR \citep{li2016biocreative}, with
+entities linked to the UMLS Metathesaurus \citep{bodenreider2004umls}
+for concept-level normalisation.
+
+\subsection{Evaluation Paradigms in Clinical NLP}
+
+Historically, the evaluation of clinical text generation relied heavily on surface-level lexical overlap metrics such as ROUGE and BLEU [Cite: Lin, 2004; Papineni et al., 2002]. However, a growing body of literature has demonstrated that these n-gram-based metrics are fundamentally inadequate for the medical domain [Cite: e.g., Maynez et al., 2020; Moradi et al., 2021; Adams et al., 2022]. As these studies highlight, surface-level metrics frequently assign high scores to generated summaries that contain fatal semantic hallucinations, incorrect dosages, or omitted clinical entities, simply because they share common vocabulary with the reference text [Cite: Zhang et al., 2023; Goyal et al., 2022]. To address this critical vulnerability, the NLP community has increasingly shifted toward advanced algorithmic metrics explicitly designed to measure factual consistency.
+
+Recent advancements have leveraged Natural Language Inference (NLI) and Question-Answering (QA) paradigms to evaluate factuality. NLI-based approaches, such as SummaC (Laban et al., 2022), evaluate sentence-level entailment to detect contradictions between generated text and source documents. Concurrently, QA-based frameworks like QAFactEval (Fabbri et al., 2022) have been developed to verify entity-level factual grounding. Crucially, research indicates that these paradigms are highly complementary; Fabbri et al. (2022) demonstrated that an ensemble combining QA and NLI methodologies outperforms either metric alone by +14\% on factual consistency benchmarks. Furthermore, in specifically clinical contexts, Tang et al. demonstrated that QA-based frameworks yield the highest correlation with human clinical judgment ($r = 0.55$), significantly outperforming traditional lexical metrics.
+
+While human evaluation by expert physicians remains the gold standard for assessing clinical correctness, it is unscalable and prohibitively expensive for large benchmarking. To bridge this gap, researchers have adapted general LLM-as-a-Judge protocols [Cite: Zheng et al., 2023 for foundational LLM-as-a-judge protocol] specifically for the clinical domain. Recent breakthroughs have proven that LLMs can evaluate complex clinical texts—such as electronic health records and medical summaries—with remarkable reliability. For instance, the MedFactEval framework demonstrated that LLM juries achieve high inter-rater agreement ($\kappa=0.81$) when compared against a 7-physician panel evaluating medical factuality [Cite: MedFactEval paper, PSB 2026]. Similarly, the PoLL methodology achieved near-perfect alignment ($\kappa=0.906$) in evaluating clinical settings [Cite: PoLL methodology paper, Bioengineering 2026]. These clinical-specific applications validate the use of LLM juries to assess nuanced dimensions—such as clinical correctness and overall utility—that rigid algorithmic metrics cannot capture. 
+
+In summary, while autoregressive LLMs currently dominate clinical summarization, their inherent vulnerability to compounding errors poses severe risks to patient safety. Masked diffusion models offer a theoretically grounded alternative to mitigate these token-by-token errors, yet their application to complex, terminology-dense clinical text remains entirely unexplored. Furthermore, existing literature lacks a cohesive evaluation framework that unites algorithmic factuality, entity-grounded constraints, and clinical LLM-as-a-judge protocols. To bridge these critical gaps, this paper conducts the first systematic comparison between autoregressive and diffusion paradigms in the medical domain, introducing entity-pinned decoding and benchmarking their performance across a comprehensive, risk-based evaluation framework.
+
+
+
+\section{Methodology}
+
+\subsection{Dataset}
+\label{sec:dataset}
+
+We use MultiClinSum \citep{rodriguez2025multiclinsum}, a publicly
+available multilingual clinical summarization dataset. We train on the combined gold-standard and
+large-scale English splits (26,494 pairs: 592 GS, 25,902 LS)
+and evaluate on a subset of the English test split (175 pairs).
+Each instance consists of a full clinical case report and a human-written
+reference summary.
+
+In the GS split, source notes average 562 words (mean 3,786 characters)
+and reference summaries average 104 words, giving a compression ratio
+of approximately 5:1. The LS split has comparable length
+characteristics to the GS split. Tokenized using the Llama 3.1 tokenizer (\texttt{meta-llama/Llama-3.1-8B}), 80.2\% of GS source documents exceed 512 tokens and 25.5\% exceed
+1,024 tokens.
+
+We conduct an entity consistency audit of the 592 GS training pairs to
+assess reference summary reliability. Of the 592 pairs, 58 (9.80\%)
+contain at least one entity-level inconsistency between the source and
+the respective summary. Detected inconsistency types include medication
+hallucinations (43 pairs, 7.26\%), numeric clinical value changes under
+the same unit (10 pairs, 1.69\%), patient age mismatches exceeding two
+years (5 pairs, 0.84\%), and gender contradictions (3 pairs, 0.51\%).
+The subcategory counts exceed 58 as three pairs contain more than one
+inconsistency type. Table~\ref{tab:noise} shows three examples of these. These inconsistencies show that reference summaries might not be reliable enough for entity-level faithfulness, which motivates evaluating factual consistency against the source note directly. This underpins our
+entity-pinned decoding strategy (Section~\ref{sec:entity_pinning}).
+
+\begin{table}[htbp]
+\small
+\centering
+\begin{tabular}{p{0.8cm}p{3.2cm}p{3.2cm}}
+\hline
+\textbf{Type} & \textbf{Source note} & \textbf{Reference summary} \\
+\hline
+Gender &
+\textit{``29-year-old \textbf{female} patient \ldots diagnosed with
+influenza B.''} &
+\textit{``29-year-old \textbf{male} presented to the emergency
+department with abdominal pain.''} \\
+\hline
+Age &
+\textit{``A \textbf{38}-year-old male presented with chest tightness
+and shortness of breath.''} &
+\textit{``A \textbf{35}-year-old male was admitted to the hospital
+three years ago because of sudden chest tightness.''} \\
+\hline
+Value &
+\textit{``HCO\textsubscript{3}\textsuperscript{--} concentration of
+\textbf{14} mmol/L.''} &
+\textit{``HCO\textsubscript{3}\textsuperscript{--} concentration of
+\textbf{14.3} mmol/L.''} \\
+\hline
+\end{tabular}
+\caption{Examples of entity inconsistencies in MultiClinSum GS reference
+summaries across three inconsistency types. In each case the reference
+summary conflicts with the source note on a clinically relevant entity.}
+\label{tab:noise}
+\end{table}
+
+\subsection{Models}
+\label{sec:models}
+
+\textbf{Llama 3.1 8B} \citep{dubey2024llama} serves as the autoregressive
+baseline, loaded from \texttt{meta-llama/Llama-3.1-8B}. It generates
+text left-to-right using standard causal language modelling, predicting
+each token conditioned on all previous tokens. We use the base model without instruction tuning, fine-tuned on MultiClinSum using the setup described in Section~\ref{sec:finetuning}.
+
+\textbf{LLaDA 8B} \citep{nie2025llada} is a masked diffusion language
+model loaded from \texttt{GSAI-ML/LLaDA-8B-Base}, trained from scratch
+at 8B scale. Rather than sequential generation, it begins from a fully masked
+sequence and iteratively denoises it: at each step, tokens with the
+highest predicted confidence are unmasked and fixed, while
+low-confidence tokens are remasked for further refinement. LLaDA has a Transformer architecture similar in size and depth to Llama 3.1 8B, but without causal masking. This allows us to attribute performance differences primarily to the generation paradigm (autoregressive vs. diffusion) rather than large differences in model scale.
+
+\textbf{LAD} \citep{kuiper2025lad} is a LoRA-adapted diffusion model
+that adapts a pretrained Llama model for masked diffusion-style generation
+using LoRA adapters rather than training from scratch, combining
+parameter-efficient fine-tuning with diffusion-style sequence refinement.
+LAD is included as a third condition to test whether diffusion-adapted
+autoregressive models behave differently from purpose-built diffusion
+models like LLaDA.
+
+\subsection{Fine-Tuning Setup}
+\label{sec:finetuning}
+
+All three models are fine-tuned on the combined GS and LS training splits of
+MultiClinSum, comprising 26,494 English clinical note and summary pairs (592 GS,
+25,902 LS). The LoRA configuration, optimiser, schedule, batch size, and number of
+epochs are kept identical across the three models, so that performance differences
+reflect the generative paradigm rather than the training procedure. All three are
+8B-parameter Transformer models \citep{nie2025llada, dubey2024llama}, and LAD shares
+Llama 3.1 8B's weights directly, so the comparison is not confounded by model scale.
+
+We apply LoRA \citep{hu2022lora} with rank $r = 8$, $\alpha = 32$, dropout $0.1$,
+targeting the query, key, value, and output projection matrices (\texttt{q\_proj},
+\texttt{k\_proj}, \texttt{v\_proj}, \texttt{o\_proj}). Only this adapter is trained;
+the 8B base and the language modelling head are frozen. Training runs for 3 epochs
+with a batch size of 1 and gradient accumulation over 8 steps, an effective batch
+size of 8, using AdamW with learning rate $2 \times 10^{-4}$, weight decay $0.01$,
+20 linear warmup steps, a cosine learning rate schedule, and gradient clipping at
+norm 1.0. These follow commonly used settings for LoRA fine-tuning at this scale and
+were not independently tuned. Training pairs whose prompt exceeded 2,048 tokens were
+excluded, affecting 187 Llama, 173 LLaDA, and 188 LAD pairs out of 26,494 (0.71\%,
+0.65\%, and 0.71\% respectively), the small differences follow from tokenizer
+vocabulary and prompt template.
+
+Llama 3.1 8B is loaded with \texttt{AutoModelForCausalLM} in bfloat16, with the
+padding token set to the EOS token as Llama 3.1 has no dedicated padding token. It
+is trained with the standard causal language modelling loss over the summary tokens
+only. LLaDA 8B is loaded with \texttt{AutoModel} in bfloat16, with the mask token ID
+set to 126336. It follows the masked diffusion objective of \citet{nie2025llada}:
+for each example a masking ratio $t \sim \mathcal{U}(0, 1]$ is applied to the summary
+tokens and the model reconstructs the original tokens given the full source note.
+
+LAD is fine-tuned from the released LAD-8B checkpoint of \citet{kuiper2025lad}, a
+Llama 3.1 8B model adapted for diffusion-style generation by a rank-1024 LoRA on the
+query and value projections. To place it under the same frozen-base, small-adapter
+recipe as the other two models, we merge this rank-1024 adapter into the base
+weights, fixing the diffusion behaviour into the frozen base, and then add the fresh
+$r = 8$ adapter described above. LAD is trained in float16 with float32 master copies
+of the adapter, since its model and forward pass operate in float16, whereas the
+other two train in bfloat16. Its corruption follows lad-code rather than LLaDA's
+per-token masking: the summary span is located through a \texttt{User:}/\texttt{Assistant:}
+template, and with probability $0.1$ the whole summary is masked, otherwise a noise
+level is sampled and the summary is corrupted by masking up to half its tokens
+together with token swaps, duplications, and a short span shift. Following lad-code,
+the loss is computed over the full sequence rather than the summary tokens alone.
+
+\subsection{Entity-Pinned Decoding}
+\label{sec:entity_pinning}
+
+Standard lexically constrained decoding \citep{hokamp2017lexically} forces a
+set of words to appear in the output by extending autoregressive beam search,
+which has no counterpart in masked diffusion's parallel decoding. We instead add a bonus to the logit of each entity's first token
+across all output positions at each denoising step, following logit-level
+guidance for controllable generation \citep{yang2021fudge}. The bonus is largest when the sequence is fully masked and decays to zero by the final steps.
+
+Disease and medication spans are identified by the \texttt{en\_ner\_bc5cdr\_md}
+scispaCy model \citep{neumann2019scispacy}, trained on the BC5CDR corpus
+\citep{li2016biocreative}. Medication spans are filtered by UMLS Semantic Type
+\citep{bodenreider2004umls} to keep only pharmacological substances and clinical
+drugs, removing laboratory analytes and endogenous chemicals. Entities longer than ten tokens are discarded. In our audit of the GS split,
+BC5CDR occasionally tagged a full clause such as "upper gastrointestinal endoscopy was performed, which showed mucosal bleeding" as a single disease. The ten-token ceiling removes these without affecting real disease names or drug-with-dosage strings.
+
+Ages, vital signs, and dosages are extracted via regex. Gender references and
+pronouns are matched by regex.
+Linked entities are resolved to UMLS canonical names \citep{bodenreider2004umls}
+so that surface variants such as \textit{paracetamol} and
+\textit{acetaminophen} refer to the same concept.
+
+Source documents in the GS split contain a mean of 15.7 diseases, 5.3
+medications, and 7.7 clinical numbers per document, but reference summaries
+retain only 23.6\%, 11.2\%, and 30.5\% of these respectively. Gender is % I can add a graph here instead?
+retained in 85.7\% of reference summaries and is always pinned. Pinning
+everything else would fill the generation budget with unimportant entities, so
+medications and diseases are ranked and a subset is selected. Medications are
+ranked by normalized mention frequency in the source document, with a $2\times$
+multiplier when the entity's last mention falls in the final quarter of the
+document. Problem-oriented medical records \citep{weed1968} organise notes around
+Assessment and Plan sections, which motivates treating late entity mentions
+as more likely to be diagnostically relevant. For diseases, we additionally weight by
+normalized inverse document frequency over the training corpus
+\citep{sparckjones1972}. Common comorbidities such as \textit{pain}
+($\mathrm{df} = 7{,}155$) and \textit{fever} ($\mathrm{df} = 5{,}629$) across
+26,494 training documents would otherwise outscore rare, specific diagnoses.
+The IDF table is fitted once over the full training corpus using Laplace
+smoothing \citep{manning2008introduction}.
+
+Entities are selected in priority order: age, gender, top-scored medications,
+top-scored diseases, and remaining numbers, subject to a token budget of
+30\% of the target generation length (38 tokens at $L = 128$). Per-category
+caps ($K_\mathrm{med} = 4$, $K_\mathrm{dis} = 8$) follow the observed summary
+means of 0.8 medications and 5.0 diseases per reference. The recency boost is a fixed heuristic, held constant rather than tuned. For multi-token entities, only the first token
+receives the bonus; in practice the remaining tokens tend to follow once the
+first is placed with high confidence.
+
+\subsection{Evaluation Methodology}
+
+\paragraph{Formulating the Risk-Based Framework:}
+To comprehensively compare the performance of autoregressive and diffusion models in clinical summarization, we must establish a robust evaluation framework. Standard Natural Language Generation (NLG) evaluation protocols rely heavily on surface-level $n$-gram matching, which prior work has shown to be insufficient for the medical domain where factual consistency is critical [Cite: Maynez et al., 2020; Moradi et al., 2021]. Drawing on recent advancements in clinical text evaluation, we formulate a multi-dimensional, risk-based framework structured sequentially across four tiers:
+
+\begin{itemize}
+    \item \textbf{Tier 1: Factuality and Clinical Accuracy.} We explicitly prioritize factual correctness by evaluating outputs across multiple granularities. For sentence-level contradiction detection, we employ SummaC [Cite: Laban et al., 2022], and for entity-level factual grounding, we utilize QAFactEval [Cite: Fabbri et al., 2022]. To supplement these algorithmic metrics with domain-specific stringency, we introduce MedNER-F1, leveraging established clinical NER pipelines [Cite: Neumann et al., 2019] to quantify the exact preservation of critical medical entities.
+    
+    \item \textbf{Tier 2: Linguistic Quality.} To measure surface-level fluency and alignment with reference summaries, we report standard token-matching metrics including ROUGE [Cite: Lin, 2004], BLEU [Cite: Papineni et al., 2002], and METEOR [Cite: Banerjee and Lavie, 2005]. Furthermore, we incorporate BERTScore-F1 [Cite: Zhang et al., 2019] to capture broader semantic similarity beyond exact lexical overlap.
+    
+    \item \textbf{Tier 3: Clinical Acceptability.} Recognizing the limitations of rigid programmatic metrics, we deploy an LLM-as-a-Judge evaluation to assess clinical utility. Following the validated protocol of \citet{croxford2025evaluating}, we assess summaries using the PDSQI-9 (Provider Documentation Summarization Quality Instrument), an 11-item rubric spanning four factors: Accuracy, Completeness, Organization, and Synthesis~\citep{croxford2025pdsqi}. We employ two independent LLM judges with established inter-rater reliability against a 7-physician panel: GPT-o3-mini (ICC = 0.818) and DeepSeek-R1 (ICC = 0.762)~\citep{croxford2025evaluating}. Using two judges with heterogeneous training paradigms---a commercially aligned model and an open-source reasoning model---reduces single-evaluator bias while maintaining high clinical validity. All 175 test samples across all model configurations are evaluated by both judges, yielding 1,750 independent clinical acceptability assessments.
+    
+    \item \textbf{Tier 4: Computational Efficiency.} Finally, we measure inference latency and generation constraints. As emphasized by recent studies on clinical AI integration [Cite: Sendak et al., 2020], efficiency metrics are critical; real-world hospital infrastructures are often resource-constrained and require low-latency processing to support timely clinical decision-making.
+\end{itemize}
+
+\paragraph{Resolving the Computational Bottleneck via Power Analysis:}
+The full MultiClinSum English test set contains 3,396 clinical documents, featuring a highly right-skewed length distribution where the long tail significantly exacerbates processing time. Evaluating the entire population is computationally prohibitive, as advanced NLI and QA-based metrics (SummaC, QAFactEval) require extensive GPU hours per sample on long clinical notes.
+
+To resolve this bottleneck without resorting to arbitrary subsampling, we adopt the pilot-guided power analysis approach for NLP evaluation [Cite: Zhu et al., 2022]. Following established clinical statistics guidelines [Cite: Browne, 1995; Sim \& Lewis, 2012], we conducted a pilot evaluation on 50 samples to estimate the per-metric variance. Driven by the maximum observed standard deviation ($\sigma = 0.269$ for the SummaC metric), our power analysis determined that a sample size of $n = 175$ is required. This statistically powered subset guarantees a 95\% confidence interval with a half-width of $\pm 0.04$, maintaining 80\% statistical power to detect an effect size of 0.075 between models. Consequently, our main evaluation is conducted on this fixed 175-document subset, balancing multi-dimensional rigor with mathematical feasibility.
+
+\paragraph{Statistical Significance Testing:}
+Finally, because NLP evaluation metrics frequently exhibit non-normal distributions, standard parametric significance tests are inappropriate. We implement the Boot-Inputs resampling procedure [Cite: Deutsch et al., 2021] to ensure reliable statistical testing. For all reported metrics, we compute 95\% confidence intervals using 1,000 bootstrap resamples with replacement, and we conduct pairwise model comparisons using paired bootstrap tests [Cite: Dror et al., 2018].
+
+% To be written by Li.
+
+\section{Results}
+\label{sec:results}
+
+All models are evaluated on the fixed 175-document subset described in
+Section~\ref{sec:dataset}. Inference runs on a single NVIDIA L40S GPU (48\,GB
+VRAM). We report means with 95\% bootstrap confidence intervals
+($k = 1{,}000$, Boot-Inputs; \cite{deutsch2021statistical}) and assess pairwise
+differences via paired bootstrap tests at $\alpha = 0.05$
+\citep{dror2018hitchhikers}. LAD is excluded from pairwise statistical
+comparisons due to its lack of clinical summarization fine-tuning
+(Section~\ref{sec:models}), which produces near-random entity preservation
+(MedNER-F1 = 0.011); we report its raw scores for completeness but focus
+subsequent analysis on the four clinically trained configurations.
+
+\subsection{Tier 1: Factuality and Clinical Accuracy}
+
+Table~\ref{tab:factuality} reports three complementary factuality dimensions:
+sentence-level NLI entailment (SummaC), entity-level QA-based verification
+(QAFactEval), and domain-specific clinical entity preservation (MedNER-F1).
+
+\begin{table}[htbp]
+\small
+\centering
+\begin{tabular}{lccc}
+\hline
+\textbf{Model} & \textbf{SummaC} $\uparrow$ & \textbf{QAFactEval} $\uparrow$ & \textbf{MedNER-F1} $\uparrow$ \\
+\hline
+LLaDA zero-shot      & $-$0.410 [$-0.445$, $-0.379$] & 0.422 [0.379, 0.466] & 0.359 [0.333, 0.385] \\
+LLaDA + LoRA (EPD)   & $+$0.030 [$-0.008$, $+0.065$] & 0.755 [0.711, 0.796] & 0.377 [0.346, 0.410] \\
+Llama 3.1 zero-shot  & $-$0.331 [$-0.369$, $-0.293$] & 0.483 [0.432, 0.538] & 0.381 [0.352, 0.410] \\
+Llama 3.1 + LoRA     & \textbf{$+$0.080} [0.045, 0.118] & \textbf{0.760} [0.708, 0.809] & \textbf{0.387} [0.354, 0.418] \\
+\hline
+LAD (TINI-LAD)       & $-$0.511 [$-0.535$, $-0.486$] & 0.418 [0.390, 0.444] & 0.011 [0.007, 0.015] \\
+\hline
+\end{tabular}
+\caption{Factuality and clinical accuracy metrics ($n=175$, mean with 95\% bootstrap CI). EPD = Entity-Pinned Decoding. Higher is better for all metrics. Bold indicates the best score among the four clinically trained configurations.}
+\label{tab:factuality}
+\end{table}
+
+\textbf{Fine-tuning dominates over architecture.}
+Both zero-shot models produce summaries frequently contradicted by the source
+text, indicated by negative SummaC scores (LLaDA: $-0.410$; Llama 3.1:
+$-0.331$). Clinical LoRA fine-tuning raises SummaC to positive territory for
+both architectures, with gains of $\Delta = +0.440$ (LLaDA) and
+$\Delta = +0.410$ (Llama 3.1), both significant ($p < 0.001$).
+QAFactEval mirrors this pattern: fine-tuning yields $+0.332$ (LLaDA) and
+$+0.277$ (Llama 3.1), both significant.
+
+\textbf{AR and diffusion are statistically indistinguishable on entity-level factuality.}
+In the critical head-to-head comparison at matched fine-tuning status,
+QAFactEval cannot separate the two paradigms: $\Delta_{\mathrm{ZS}} = -0.061$
+(95\% CI: $[-0.122, +0.005]$, ns) and $\Delta_{\mathrm{LoRA}} = -0.005$
+(95\% CI: $[-0.066, +0.055]$, ns). SummaC, however, consistently favours
+Llama 3.1 by a small but significant margin
+($\Delta_{\mathrm{ZS}} = -0.080$, $\Delta_{\mathrm{LoRA}} = -0.050$),
+suggesting a marginal AR advantage in sentence-level entailment.
+
+\textbf{Entity-Pinned Decoding provides directional but modest entity gains.}
+Comparing LLaDA LoRA against its zero-shot counterpart, MedNER-F1 improves
+from 0.359 to 0.377 ($+5.0\%$ relative). This gain is smaller than the
+improvements observed on SummaC and QAFactEval, and Llama 3.1 achieves
+comparable MedNER-F1 without entity-aware decoding (0.381 ZS, 0.387 LoRA),
+suggesting that autoregressive left-to-right generation implicitly retains
+entity information to a similar degree.
+
+\subsection{Tier 2: Linguistic Quality}
+
+Table~\ref{tab:quality} reports standard NLG metrics comparing generated
+summaries against human-written references.
+
+\begin{table}[htbp]
+\small
+\centering
+\begin{tabular}{lcccccc}
+\hline
+\textbf{Model} & \textbf{ROUGE-1} & \textbf{ROUGE-2} & \textbf{ROUGE-L} & \textbf{BLEU-4} & \textbf{METEOR} & \textbf{BERTScore-F1} \\
+\hline
+LLaDA ZS   & \textbf{0.395} & 0.160 & 0.276 & 0.054 & 0.237 & \textbf{0.206} \\
+LLaDA LoRA & 0.378 & 0.171 & 0.265 & 0.080 & 0.249 & 0.148 \\
+Llama 3.1 ZS  & 0.375 & 0.152 & 0.251 & 0.051 & 0.222 & 0.159 \\
+Llama 3.1 LoRA & 0.391 & \textbf{0.187} & \textbf{0.278} & \textbf{0.094} & \textbf{0.263} & 0.178 \\
+\hline
+LAD        & 0.252 & 0.064 & 0.149 & 0.015 & 0.176 & $-0.089$ \\
+\hline
+\end{tabular}
+\caption{Linguistic quality metrics ($n=175$, mean). Bold indicates best score among the four clinically trained configurations. ZS = zero-shot.}
+\label{tab:quality}
+\end{table}
+
+\textbf{Zero-shot: diffusion captures broader semantic coverage.}
+LLaDA zero-shot achieves the highest BERTScore-F1 (0.206) and ROUGE-L
+(0.276), significantly outperforming Llama 3.1 zero-shot on ROUGE-L
+($\Delta = +0.025$, 95\% CI: $[+0.014, +0.035]$). This suggests that
+non-autoregressive, global-consistency generation captures broader semantic
+similarity without task-specific training.
+
+\textbf{Fine-tuning reverses the ranking.}
+After clinical LoRA training, Llama 3.1 LoRA leads on all lexical metrics:
+ROUGE-L 0.278, BLEU-4 0.094, METEOR 0.263.
+The ROUGE-L advantage over LLaDA LoRA is significant
+($\Delta = -0.013$, 95\% CI: $[-0.024, -0.002]$).
+Notably, \textbf{BERTScore-F1 degrades after LoRA fine-tuning for both
+architectures} (LLaDA: $0.206 \rightarrow 0.148$; Llama 3.1:
+$0.159 \rightarrow 0.178$), indicating that fine-tuned models produce more
+reference-like surface forms at the expense of semantic breadth.
+
+\subsection{Tier 3: Clinical Acceptability}
+
+Following the validated PDSQI-9 protocol~\citep{croxford2025pdsqi,
+croxford2025evaluating}, two LLM judges---GPT-o3-mini (ICC = 0.818) and
+DeepSeek-R1 (ICC = 0.762)---evaluate all 175 samples across all models,
+yielding 1,750 clinical acceptability assessments.
+Table~\ref{tab:pdsqi} reports mean scores per PDSQI-9 factor.
+
+\begin{table}[htbp]
+\small
+\centering
+\begin{tabular}{lccccc}
+\hline
+\textbf{Model} & \textbf{Accuracy} & \textbf{Completeness} & \textbf{Organization} & \textbf{Synthesis} & \textbf{Overall} \\
+\hline
+\multicolumn{6}{c}{\textit{GPT-o3-mini (ICC = 0.818)}} \\
+\hline
+Llama 3.1 ZS  & \textbf{2.80} & \textbf{2.36} & \textbf{4.69} & \textbf{1.36} & \textbf{3.01} \\
+Llama 3.1 LoRA & 2.79 & 1.60 & 4.25 & 0.76 & 2.56 \\
+LLaDA ZS       & 1.99 & 2.48 & 3.57 & 1.33 & 2.48 \\
+LLaDA LoRA     & 2.40 & 1.55 & 3.39 & 0.68 & 2.16 \\
+\hline
+LAD            & 1.00 & 1.00 & 2.68 & 0.51 & 1.45 \\
+\hline
+\multicolumn{6}{c}{\textit{DeepSeek-R1 (ICC = 0.762)}} \\
+\hline
+Llama 3.1 ZS   & 2.56 & 1.96 & \textbf{4.17} & \textbf{2.12} & \textbf{2.86} \\
+Llama 3.1 LoRA & \textbf{2.61} & 1.55 & 3.73 & 1.41 & 2.48 \\
+LLaDA ZS       & 1.43 & \textbf{2.13} & 2.96 & 1.55 & 2.12 \\
+LLaDA LoRA     & 1.93 & 1.51 & 2.78 & 1.33 & 1.99 \\
+\hline
+LAD            & 1.00 & 1.00 & 1.42 & 0.77 & 1.09 \\
+\hline
+\end{tabular}
+\caption{Clinical acceptability scores by LLM judge (PDSQI-9, $n=175$, mean per factor). Scale 1--5; higher is better. Bold indicates best among the four clinically trained configurations.}
+\label{tab:pdsqi}
+\end{table}
+
+\textbf{Zero-shot AR leads clinical acceptability.}
+Both judges independently rank Llama 3.1 zero-shot highest on Overall score
+(o3-mini: 3.01; R1: 2.86), with perfect rank-order agreement across all five
+models (Spearman $\rho = 1.0$). The AR advantage is largest in Organization
+(o3-mini: 4.69 vs.\ 3.57 for LLaDA ZS) and Synthesis (1.36 vs.\ 1.33),
+suggesting that sequential generation produces better-structured clinical
+narratives. GPT-o3-mini assigns systematically higher scores, consistent
+with its superior ICC, but the between-model ranking is invariant to judge
+identity.
+
+\textbf{Fine-tuning paradoxically reduces clinical acceptability.}
+Llama 3.1 LoRA scores lower than its zero-shot counterpart on Overall
+(2.56 vs.\ 3.01 under o3-mini; 2.48 vs.\ 2.86 under R1), with drops
+concentrated in Completeness and Synthesis. LLaDA LoRA exhibits the same
+pattern (Overall: 2.16 vs.\ 2.48 under o3-mini). We hypothesise that
+clinical LoRA fine-tuning encourages extractive behaviour---copying source
+text verbatim---which, while improving ROUGE and factuality metrics,
+degrades the succinctness and abstractive synthesis that clinicians value.
+
+\textbf{Synthesis is universally poor.}
+Across all models and both judges, Synthesis scores remain below 2.2 on a
+1--5 scale, indicating that no current model adequately performs the
+clinical reasoning required for abstraction and synthesis.
+
+\subsection{Tier 4: Computational Efficiency}
+
+Table~\ref{tab:efficiency} reports single-sample inference latency on the
+shared L40S hardware.
+
+\begin{table}[htbp]
+\small
+\centering
+\begin{tabular}{lccc}
+\hline
+\textbf{Model} & \textbf{Latency (s)} $\downarrow$ & \textbf{Mechanism} & \textbf{vs.\ AR ZS} \\
+\hline
+LLaDA zero-shot     & \textbf{3.24} & 512 diffusion steps & \textbf{$+16.3\%$} \\
+LLaDA + LoRA        & 3.26           & 512 diffusion steps & $+15.7\%$ \\
+Llama 3.1 zero-shot & 3.87           & $\sim$128 AR tokens  & --- \\
+Llama 3.1 + LoRA    & 3.86           & $\sim$128 AR tokens  & --- \\
+\hline
+LAD                 & 4.22           & 16 iterations        & $-9.1\%$ \\
+\hline
+\end{tabular}
+\caption{Single-sample inference latency on NVIDIA L40S (48\,GB VRAM), $n=175$. $\downarrow$ = lower is better.}
+\label{tab:efficiency}
+\end{table}
+
+\textbf{Diffusion is faster, not slower.}
+LLaDA achieves a mean latency of 3.24\,s/sample, approximately 16\% faster
+than Llama 3.1 (3.87\,s/sample), contradicting the common assumption that
+iterative denoising is inherently slower than autoregressive decoding. The
+gain arises because LLaDA generates all 128 tokens in parallel across 512
+denoising steps with dLLM-Cache acceleration, while Llama 3.1 sequentially
+decodes each token. LAD, at 16 iterations, runs 9\% slower than Llama 3.1
+(4.22\,s). Increasing LAD to 64 iterations (aligned with LLaDA) increased
+latency to 28.17\,s/sample (a $6.7\times$ increase), making it impractical
+for production deployment.
+
+\subsection{Pairwise Statistical Tests}
+
+Table~\ref{tab:pairwise} summarises paired bootstrap comparisons for the key
+metrics. The central finding is that \textbf{QAFactEval cannot distinguish
+between autoregressive and diffusion architectures} at either zero-shot or
+fine-tuned tiers. Fine-tuning status, not architectural paradigm, is the
+dominant factor determining entity-level factuality.
+
+\begin{table}[htbp]
+\small
+\centering
+\begin{tabular}{lccc}
+\hline
+\textbf{Comparison} & $\Delta$ \textbf{SummaC} & $\Delta$ \textbf{QAFactEval} & $\Delta$ \textbf{ROUGE-L} \\
+\hline
+LLaDA ZS vs.\ Llama ZS     & $\mathbf{-0.080}^{*}$ $[-0.125, -0.030]$ & $-0.061^{\mathrm{ns}}$ $[-0.122, +0.005]$ & $\mathbf{+0.025}^{*}$ $[+0.014, +0.035]$ \\
+LLaDA LoRA vs.\ Llama LoRA & $\mathbf{-0.050}^{*}$ $[-0.087, -0.012]$ & $-0.005^{\mathrm{ns}}$ $[-0.066, +0.055]$ & $\mathbf{-0.013}^{*}$ $[-0.024, -0.002]$ \\
+LLaDA LoRA vs.\ LLaDA ZS   & $\mathbf{+0.440}^{***}$ $[+0.393, +0.491]$ & $\mathbf{+0.332}^{***}$ $[+0.272, +0.397]$ & $-0.011^{\mathrm{ns}}$ $[-0.023, +0.002]$ \\
+Llama LoRA vs.\ Llama ZS   & $\mathbf{+0.410}^{***}$ $[+0.364, +0.460]$ & $\mathbf{+0.277}^{***}$ $[+0.208, +0.346]$ & $\mathbf{+0.027}^{*}$ $[+0.015, +0.040]$ \\
+\hline
+\end{tabular}
+\caption{Paired bootstrap comparisons ($k=1{,}000$, $\alpha=0.05$). Bold = significant (95\% CI excludes 0).
+$^{*}p < 0.05$, $^{***}p < 0.001$; ns = not significant. $\Delta = \mathrm{Model}_A - \mathrm{Model}_B$.}
+\label{tab:pairwise}
+\end{table}
+
+SummaC shows a consistent AR advantage at both zero-shot
+($\Delta = -0.080$, significant) and fine-tuned levels
+($\Delta = -0.050$, significant). Fine-tuning effects are uniformly large and
+significant across architectures ($+0.28$ to $+0.44$), dwarfing the
+between-paradigm differences. ROUGE-L favours different paradigms depending
+on fine-tuning status: diffusion leads in zero-shot ($+0.025$, significant),
+while AR leads after fine-tuning ($-0.013$, significant).
+
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{The Deception of N-gram Metrics}
+
+Our results present a cautionary case study on the inadequacy of lexical
+overlap metrics for clinical text evaluation. In the zero-shot setting,
+LLaDA achieves significantly \emph{higher} ROUGE-L (0.276 vs.\ 0.251,
+$\Delta = +0.025$, $p < 0.05$) and BERTScore-F1 (0.206 vs.\ 0.159) than
+Llama 3.1---yet its SummaC score is significantly \emph{worse}
+($-0.410$ vs.\ $-0.331$, $\Delta = -0.080$, $p < 0.05$). A researcher
+relying solely on ROUGE or BERTScore would erroneously conclude that LLaDA
+zero-shot produces superior summaries; in reality, those summaries exhibit a
+higher rate of factual contradiction with the source text. In the fine-tuned
+setting, the opposite dissociation occurs: Llama 3.1 LoRA significantly
+outperforms LLaDA LoRA on ROUGE-L ($\Delta = +0.013$, $p < 0.05$) and
+BLEU-4 ($\Delta = +0.014$), yet the two models are statistically
+indistinguishable on QAFactEval ($\Delta = -0.005$, ns). A significant
+ROUGE-L advantage does not translate to better factuality.
+
+This dissociation exposes a structural problem for clinical NLP evaluation:
+$n$-gram metrics measure surface-form similarity to a reference summary,
+but a clinically useful summary must be \emph{factually consistent with the
+source}, not merely lexically similar to a human-written reference. Our
+qualitative analysis confirms that LoRA fine-tuned models frequently copy
+phrases verbatim from the source---a behaviour that inflates ROUGE/BLEU
+while potentially introducing factual errors when copied text is taken out
+of context. We recommend a mandatory minimum standard for clinical
+summarization evaluation: any claim of improvement must be supported by at
+least one source-grounded factuality metric (SummaC, QAFactEval, or
+equivalent). ROUGE-only comparisons should be considered insufficient for
+publication in clinical NLP.
+
+\subsection{Label Noise Motivates Source-Grounded Evaluation}
+
+The entity consistency audit of the MultiClinSum GS training partition
+($n=592$) described in Section~\ref{sec:dataset} reveals that 9.80\% of
+reference summaries contain factual errors relative to their source texts,
+including gender contradictions, age mismatches, and numerical value
+alterations. This finding has direct consequences for evaluation design: if
+nearly one in ten reference summaries is itself factually incorrect, any
+reference-based metric (ROUGE, BLEU, METEOR, BERTScore) is fundamentally
+\emph{penalising models for being more factually accurate than the
+reference}. A model that correctly generates ``29-year-old female'' when
+the erroneous reference states ``29-year-old male'' receives a lower ROUGE-1
+score, despite being clinically correct. This creates a perverse evaluation
+incentive: models are rewarded for replicating reference errors and punished
+for correcting them.
+
+Source-grounded metrics (SummaC, QAFactEval) circumvent this problem by
+comparing generated summaries directly against the source text, bypassing
+the noisy reference entirely. Our Tier~1 results validate this approach:
+after fine-tuning, both LLaDA and Llama 3.1 achieve near-identical
+QAFactEval scores (0.755 vs.\ 0.760, ns), despite different ROUGE profiles.
+We argue that source-grounded evaluation is not merely an enhancement but a
+\textbf{methodological necessity} for clinical NLP, where reference
+summaries are demonstrably unreliable. Future clinical summarization
+benchmarks should report source-grounded metrics as primary endpoints and
+treat reference-based metrics as secondary diagnostics.
+
+\subsection{Quantifying the Diffusion--AR Trade-off}
+
+Our four-tier framework enables a quantitative characterisation of the
+deployment trade-off between diffusion and autoregressive models in clinical
+settings.
+
+\textbf{Factuality converges after fine-tuning.} Once both architectures
+receive clinical LoRA training, they achieve statistically indistinguishable
+entity-level factuality (QAFactEval $\Delta = -0.005$, ns).
+The remaining difference is a small but significant SummaC gap favouring
+Llama 3.1 ($\Delta = -0.050$). For safety-critical deployments where factual
+accuracy is the paramount concern, the two paradigms are functionally
+equivalent.
+
+\textbf{Speed favours diffusion by 16\%.} LLaDA's 3.24\,s/sample latency
+offers a meaningful throughput advantage over Llama 3.1 (3.87\,s/sample)
+in high-volume clinical settings. Combined with comparable factuality,
+LLaDA LoRA offers the best factuality-to-latency ratio in our benchmark:
+QAFactEval of 0.755 at 3.26\,s/sample, vs.\ Llama LoRA's 0.760 at
+3.86\,s/sample---a 16\% speed advantage for a 0.7\% factuality difference
+that is not statistically significant.
+
+\textbf{Clinical acceptability favours zero-shot AR.} The highest LLM-judge
+scores belong to Llama 3.1 zero-shot (Overall: 3.01 o3-mini, 2.86 R1).
+Fine-tuning degrades these scores across both architectures. This reveals a
+tension between \emph{measured factuality} (where fine-tuning helps) and
+\emph{perceived quality} (where it hurts). The observation that fine-tuned
+models score worse on Completeness and Synthesis despite higher QAFactEval
+suggests that current clinical LoRA training encourages extractive,
+reference-matching behaviour rather than genuine clinical synthesis.
+Resolving this tension---training models that are both factually grounded and
+clinically well-structured---remains an open challenge.
+
+\textbf{The LAD boundary condition.} LAD's catastrophic entity preservation
+(MedNER-F1 = 0.011) persists even after aligning inference hyperparameters
+with LLaDA. This negative result demonstrates that architectural innovation
+cannot compensate for the absence of task-specific training data. Diffusion
+models require the same domain adaptation rigour as AR models to be
+clinically viable.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+This study presents the first systematic comparison of diffusion-based and
+autoregressive language models for clinical text summarization under a
+four-tier risk-based evaluation framework. Our central empirical finding is
+that \textbf{after domain-specific fine-tuning, diffusion and autoregressive
+models achieve statistically indistinguishable entity-level factuality}
+(QAFactEval $\Delta = -0.005$, 95\% CI: $[-0.066, +0.055]$,
+ns). The two paradigms exhibit complementary zero-shot strengths---diffusion
+captures broader semantic coverage (BERTScore-F1: 0.206 vs.\ 0.159), while
+AR produces better-structured clinical narratives (PDSQI-9 Overall: 3.01
+vs.\ 2.48 under o3-mini)---but these differences converge after fine-tuning.
+Diffusion offers a consistent 16\% inference speed advantage (3.24\,s vs.\
+3.87\,s per summary), challenging the assumption that iterative denoising is
+inherently slower than autoregressive decoding.
+
+From an evaluation methodology perspective, we demonstrate two independent
+reasons to abandon ROUGE-centric evaluation in clinical NLP: (1)~$n$-gram
+metrics are empirically dissociated from source-level factuality, producing
+misleading model rankings at both zero-shot and fine-tuned tiers; and
+(2)~9.80\% of reference summaries in a widely-used clinical benchmark
+contain factual errors, rendering reference-based metrics fundamentally
+unreliable. We recommend that source-grounded factuality metrics be adopted
+as primary evaluation endpoints in clinical summarization research.
+
+\section*{Limitations}
+
+\textbf{Sample size and coverage.} Our main evaluation uses $n=175$ samples
+(5.2\% of MultiClinSum test set). While this is statistically powered for
+the primary comparison ($\pm 0.04$ CI on SummaC), rare clinical entities and
+edge cases may be underrepresented. A larger-scale replication is warranted
+for MedNER-F1, where between-architecture differences are small.
+
+\textbf{LLM-as-Judge biases.} Despite validated ICC values (0.818 and
+0.762), known LLM-judge confounds---position bias, verbosity bias, and
+self-enhancement bias~\citep{zheng2023judging}---remain unaddressed.
+GPT-o3-mini's systematically higher absolute scores may reflect optimism
+bias rather than genuine quality differences.
+
+\textbf{Absence of human clinician evaluation.} The PDSQI-9 rubric was
+validated against 7 physician raters by \citet{croxford2025pdsqi,
+croxford2025evaluating}, but our own evaluation relies entirely on LLM
+judges. Direct clinician evaluation of model outputs would provide
+gold-standard validation, particularly given the counter-intuitive finding
+that fine-tuning degrades clinical acceptability.
+
+\textbf{Single dataset.} All experiments use MultiClinSum, which is limited
+to English-language case reports and may not generalise to other clinical
+text genres (radiology reports, discharge summaries). Cross-dataset
+validation would strengthen generalisability.
+
+\textbf{Model scale.} Our experiments are limited to the 8B parameter scale.
+Whether the finding of statistical indistinguishability on QAFactEval holds
+at larger scales (e.g., 70B+) remains unknown.
+
+\textbf{EPD ablations.} Entity-Pinned Decoding was evaluated only as a
+component of the LLaDA LoRA pipeline; a clean ablation (LLaDA LoRA with
+vs.\ without EPD) was not conducted. The observed MedNER-F1 improvement
+($+0.019$) therefore confounds fine-tuning and entity-aware decoding
+effects.
+
+% Bibliography entries for the entire Anthology, followed by custom entries
+%\bibliography{anthology,custom}
+% Custom bibliography entries only
+\bibliography{custom}
+
+\appendix
+
+\section{Implementation Details}
+\label{sec:appendix}
+
+\subsection*{Software Dependencies}
+LLaDA 8B requires \texttt{transformers==4.38.2} due to upstream
+dependency constraints in its custom attention implementation.
+All other dependencies use current stable releases.
+
+\end{document}
+
+
+
