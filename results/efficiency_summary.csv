@@ -1,8 +1,0 @@
-model,avg_latency_s,total_wall_time_s,avg_steps,avg_tokens,avg_iterations
-llada_epd,18.4,62484.6,64.0,,
-llada_test,5.89,1030.6,64.0,,
-llada_lora,5.97,1045.2,64.0,,
-llama_test,5.06,885.5,,127.8,
-llama_lora,5.06,885.9,,128.0,
-lad_epd,2.05,358.4,,,7.3
-lad_lora,1.99,349.1,,,5.1
