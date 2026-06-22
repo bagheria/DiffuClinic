@@ -158,7 +158,8 @@ def summarize(model, tokenizer, full_text, device, cache_ref,
     )
     elapsed = time.time() - t0
     pred_text = tokenizer.batch_decode(out[:, input_ids.shape[1]:], skip_special_tokens=True)[0].strip()
-    total_diffusion_steps = steps * (gen_length // block_length)
+    num_blocks = gen_length // block_length
+    total_diffusion_steps = num_blocks * (steps // num_blocks)
     return pred_text, elapsed, total_diffusion_steps
 
 
